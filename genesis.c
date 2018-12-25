@@ -245,6 +245,7 @@ static void adjust_int_cycle(m68k_context * context, vdp_context * v_context)
 static void z80_next_int_pulse(z80_context * z_context)
 {
 	genesis_context * gen = z_context->system;
+	vdp_run_context(gen->vdp, z_context->current_cycle);
 	z_context->int_pulse_start = vdp_next_vint_z80(gen->vdp);
 	z_context->int_pulse_end = z_context->int_pulse_start + Z80_INT_PULSE_MCLKS;
 	z_context->im2_vector = 0xFF;
@@ -282,7 +283,7 @@ static void sync_sound(genesis_context * gen, uint32_t target)
 static uint32_t last_frame_num;
 
 //My refresh emulation isn't currently good enough and causes more problems than it solves
-#define REFRESH_EMULATION
+//#define REFRESH_EMULATION
 #ifdef REFRESH_EMULATION
 #define REFRESH_INTERVAL 128
 #define REFRESH_DELAY 2
@@ -363,6 +364,7 @@ m68k_context * sync_components(m68k_context * context, uint32_t address)
 	if (gen->reset_cycle < context->target_cycle) {
 		context->target_cycle = gen->reset_cycle;
 	}
+#ifdef USE_NATIVE
 	if (address) {
 		if (gen->header.enter_debugger) {
 			gen->header.enter_debugger = 0;
@@ -394,6 +396,7 @@ m68k_context * sync_components(m68k_context * context, uint32_t address)
 			context->sync_cycle = context->current_cycle + 1;
 		}
 	}
+#endif
 #ifdef REFRESH_EMULATION
 	last_sync_cycle = context->current_cycle;
 #endif
@@ -916,11 +919,21 @@ static uint8_t z80_read_bank(uint32_t location, void * vcontext)
 {
 	z80_context * context = vcontext;
 	genesis_context *gen = context->system;
+
 	if (gen->bus_busy) {
+#ifdef USE_NATIVE
 		context->current_cycle = context->sync_cycle;
+#else
+		context->m_icount = 0;
+#endif
 	}
+
 	//typical delay from bus arbitration
+#ifdef USE_NATIVE
 	context->current_cycle += 3 * MCLKS_PER_Z80;
+#else
+	context->m_icount -= 3;
+#endif
 	//TODO: add cycle for an access right after a previous one
 	//TODO: Below cycle time is an estimate based on the time between 68K !BG goes low and Z80 !MREQ goes high
 	//      Needs a new logic analyzer capture to get the actual delay on the 68K side
@@ -944,10 +957,18 @@ static void *z80_write_bank(uint32_t location, void * vcontext, uint8_t value)
 	z80_context * context = vcontext;
 	genesis_context *gen = context->system;
 	if (gen->bus_busy) {
+#ifdef USE_NATIVE
 		context->current_cycle = context->sync_cycle;
+#else
+		context->m_icount = 0;
+#endif
 	}
 	//typical delay from bus arbitration
+#ifdef USE_NATIVE
 	context->current_cycle += 3 * MCLKS_PER_Z80;
+#else
+	context->m_icount -= 3;
+#endif
 	//TODO: add cycle for an access right after a previous one
 	//TODO: Below cycle time is an estimate based on the time between 68K !BG goes low and Z80 !MREQ goes high
 	//      Needs a new logic analyzer capture to get the actual delay on the 68K side
@@ -1021,7 +1042,7 @@ static uint8_t load_state(system_header *system, uint8_t slot)
 	char *statepath = get_slot_name(system, slot, "state");
 	deserialize_buffer state;
 	uint32_t pc = 0;
-	uint8_t ret;
+	uint8_t ret = 0;
 	if (!gen->m68k->resume_pc) {
 		system->delayed_load_slot = slot + 1;
 		gen->m68k->should_return = 1;
@@ -1039,13 +1060,17 @@ static uint8_t load_state(system_header *system, uint8_t slot)
 		pc = gen->m68k->last_prefetch_address;
 		ret = 1;
 	} else {
+#ifdef USE_NATIVE
 		strcpy(statepath + strlen(statepath)-strlen("state"), "gst");
 		pc = load_gst(gen, statepath);
 		ret = pc != 0;
+#endif
 	}
+#ifdef USE_NATIVE
 	if (ret) {
 		gen->m68k->resume_pc = get_native_address_trans(gen->m68k, pc);
 	}
+#endif
 done:
 	free(statepath);
 	return ret;
@@ -1089,24 +1114,30 @@ static void start_genesis(system_header *system, char *statefile)
 			//HACK
 			pc = gen->m68k->last_prefetch_address;
 		} else {
+#ifdef USE_NATIVE
 			pc = load_gst(gen, statefile);
 			if (!pc) {
 				fatal_error("Failed to load save state %s\n", statefile);
 			}
+#endif
 		}
 		printf("Loaded %s\n", statefile);
+#ifdef USE_NATIVE
 		if (gen->header.enter_debugger) {
 			gen->header.enter_debugger = 0;
 			insert_breakpoint(gen->m68k, pc, gen->header.debugger_type == DEBUGGER_NATIVE ? debugger : gdb_debug_enter);
 		}
+#endif
 		adjust_int_cycle(gen->m68k, gen->vdp);
 		start_68k_context(gen->m68k, pc);
 	} else {
+#ifdef USE_NATIVE
 		if (gen->header.enter_debugger) {
 			gen->header.enter_debugger = 0;
 			uint32_t address = gen->cart[2] << 16 | gen->cart[3];
 			insert_breakpoint(gen->m68k, address, gen->header.debugger_type == DEBUGGER_NATIVE ? debugger : gdb_debug_enter);
 		}
+#endif
 		m68k_reset(gen->m68k);
 	}
 	handle_reset_requests(gen);
