@@ -100,7 +100,7 @@ int load_smd_rom(ROMFILE f, void **buffer)
 	return readsize;
 }
 
-uint32_t load_rom_zip(const char *filename, void **dst)
+uint32_t load_media_zip(const char *filename, system_media *dst)
 {
 	static const char *valid_exts[] = {"bin", "md", "gen", "sms", "rom"};
 	const uint32_t num_exts = sizeof(valid_exts)/sizeof(*valid_exts);
@@ -119,9 +119,12 @@ uint32_t load_rom_zip(const char *filename, void **dst)
 		{
 			if (!strcasecmp(ext, valid_exts[j])) {
 				size_t out_size = nearest_pow2(z->entries[i].size);
-				*dst = zip_read(z, i, &out_size);
-				if (*dst) {
-					free(ext);
+				dst->buffer = zip_read(z, i, &out_size);
+				if (dst->buffer) {
+					dst->extension = ext;
+					dst->dir = path_dirname(filename);
+					dst->name = basename_no_extension(filename);
+					dst->size = out_size;
 					zip_close(z);
 					return out_size;
 				}
@@ -133,13 +136,13 @@ uint32_t load_rom_zip(const char *filename, void **dst)
 	return 0;
 }
 
-uint32_t load_rom(const char * filename, void **dst, system_type *stype)
+uint32_t load_media(const char * filename, system_media *dst, system_type *stype)
 {
 	uint8_t header[10];
 	char *ext = path_extension(filename);
 	if (ext && !strcasecmp(ext, "zip")) {
 		free(ext);
-		return load_rom_zip(filename, dst);
+		return load_media_zip(filename, dst);
 	}
 	free(ext);
 	ROMFILE f = romopen(filename, "rb");
@@ -150,6 +153,7 @@ uint32_t load_rom(const char * filename, void **dst, system_type *stype)
 		fatal_error("Error reading from %s\n", filename);
 	}
 	
+	uint32_t ret = 0;
 	if (header[1] == SMD_MAGIC1 && header[8] == SMD_MAGIC2 && header[9] == SMD_MAGIC3) {
 		int i;
 		for (i = 3; i < 8; i++) {
@@ -164,38 +168,44 @@ uint32_t load_rom(const char * filename, void **dst, system_type *stype)
 			if (stype) {
 				*stype = SYSTEM_GENESIS;
 			}
-			return load_smd_rom(f, dst);
+			ret = load_smd_rom(f, &dst->buffer);
 		}
 	}
 	
-	size_t filesize = 512 * 1024;
-	size_t readsize = sizeof(header);
+	if (!ret) {
+		size_t filesize = 512 * 1024;
+		size_t readsize = sizeof(header);
 		
-	char *buf = malloc(filesize);
-	memcpy(buf, header, readsize);
+		char *buf = malloc(filesize);
+		memcpy(buf, header, readsize);
 	
-	size_t read;
-	do {
-		read = romread(buf + readsize, 1, filesize - readsize, f);
-		if (read > 0) {
-			readsize += read;
-			if (readsize == filesize) {
-				int one_more = romgetc(f);
-				if (one_more >= 0) {
-					filesize *= 2;
-					buf = realloc(buf, filesize);
-					buf[readsize++] = one_more;
-				} else {
-					read = 0;
+		size_t read;
+		do {
+			read = romread(buf + readsize, 1, filesize - readsize, f);
+			if (read > 0) {
+				readsize += read;
+				if (readsize == filesize) {
+					int one_more = romgetc(f);
+					if (one_more >= 0) {
+						filesize *= 2;
+						buf = realloc(buf, filesize);
+						buf[readsize++] = one_more;
+					} else {
+						read = 0;
+					}
 				}
 			}
-		}
-	} while (read > 0);
-	
-	*dst = buf;
+		} while (read > 0);
+		dst->buffer = buf;
+		ret = (uint32_t)readsize;
+	}
+	dst->dir = path_dirname(filename);
+	dst->name = basename_no_extension(filename);
+	dst->extension = path_extension(filename);
+	dst->size = ret;
 	
 	romclose(f);
-	return readsize;
+	return ret;
 }
 
 
@@ -340,10 +350,7 @@ void lockon_media(char *lock_on_path)
 	free(lock_on.dir);
 	free(lock_on.name);
 	free(lock_on.extension);
-	lock_on.dir = path_dirname(lock_on_path);
-	lock_on.name = basename_no_extension(lock_on_path);
-	lock_on.extension = path_extension(lock_on_path);
-	lock_on.size = load_rom(lock_on_path, &lock_on.buffer, NULL);
+	load_media(lock_on_path, &lock_on, NULL);
 }
 
 static uint32_t opts = 0;
@@ -362,16 +369,14 @@ void init_system_with_media(const char *path, system_type force_stype)
 		//start a new arena and save old one in suspended system context
 		current_system->arena = start_new_arena();
 	}
-	system_type stype = SYSTEM_UNKNOWN;
-	if (!(cart.size = load_rom(path, &cart.buffer, &stype))) {
-		fatal_error("Failed to open %s for reading\n", path);
-	}
 	free(cart.dir);
 	free(cart.name);
 	free(cart.extension);
-	cart.dir = path_dirname(path);
-	cart.name = basename_no_extension(path);
-	cart.extension = path_extension(path);
+	system_type stype = SYSTEM_UNKNOWN;
+	if (!(cart.size = load_media(path, &cart, &stype))) {
+		fatal_error("Failed to open %s for reading\n", path);
+	}
+	
 	if (force_stype != SYSTEM_UNKNOWN) {
 		stype = force_stype;
 	}
@@ -491,12 +496,9 @@ int main(int argc, char ** argv)
 				if (i >= argc) {
 					fatal_error("-o must be followed by a lock on cartridge filename\n");
 				}
-				lock_on.size = load_rom(argv[i], &lock_on.buffer, NULL);
-				if (!lock_on.size) {
+				if (!load_media(argv[i], &lock_on, NULL)) {
 					fatal_error("Failed to load lock on cartridge %s\n", argv[i]);
 				}
-				lock_on.name = basename_no_extension(argv[i]);
-				lock_on.extension = path_extension(argv[i]);
 				cart.chain = &lock_on;
 				break;
 			}
@@ -525,12 +527,9 @@ int main(int argc, char ** argv)
 				fatal_error("Unrecognized switch %s\n", argv[i]);
 			}
 		} else if (!loaded) {
-			if (!(cart.size = load_rom(argv[i], &cart.buffer, stype == SYSTEM_UNKNOWN ? &stype : NULL))) {
+			if (!load_media(argv[i], &cart, stype == SYSTEM_UNKNOWN ? &stype : NULL)) {
 				fatal_error("Failed to open %s for reading\n", argv[i]);
 			}
-			cart.dir = path_dirname(argv[i]);
-			cart.name = basename_no_extension(argv[i]);
-			cart.extension = path_extension(argv[i]);
 			romfname = argv[i];
 			loaded = 1;
 		} else if (width < 0) {
@@ -580,7 +579,7 @@ int main(int argc, char ** argv)
 			romfname = "menu.bin";
 		}
 		if (is_absolute_path(romfname)) {
-			if (!(cart.size = load_rom(romfname, &cart.buffer, &stype))) {
+			if (!(cart.size = load_media(romfname, &cart, &stype))) {
 				fatal_error("Failed to open UI ROM %s for reading", romfname);
 			}
 		} else {
@@ -593,12 +592,12 @@ int main(int argc, char ** argv)
 				cart.buffer = realloc(cart.buffer, rom_size);
 				cart.size = rom_size;
 			}
+			cart.dir = path_dirname(romfname);
+			cart.name = basename_no_extension(romfname);
+			cart.extension = path_extension(romfname);
 		}
 		//force system detection, value on command line is only for games not the menu
 		stype = detect_system_type(&cart);
-		cart.dir = path_dirname(romfname);
-		cart.name = basename_no_extension(romfname);
-		cart.extension = path_extension(romfname);
 		loaded = 1;
 	}
 	char *state_format = tern_find_path(config, "ui\0state_format\0", TVAL_PTR).ptrval;

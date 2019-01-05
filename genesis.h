@@ -31,6 +31,7 @@ struct genesis_context {
 	uint16_t        *lock_on;
 	uint16_t        *work_ram;
 	uint8_t         *zram;
+	void            *expansion;
 	void            *extra;
 	uint8_t         *save_storage;
 	void            *mapper_temp;
@@ -62,6 +63,7 @@ struct genesis_context {
 
 m68k_context * sync_components(m68k_context *context, uint32_t address);
 genesis_context *alloc_config_genesis(void *rom, uint32_t rom_size, void *lock_on, uint32_t lock_on_size, uint32_t system_opts, uint8_t force_region);
+genesis_context *alloc_config_genesis_cdboot(system_media *media, uint32_t system_opts, uint8_t force_region);
 void genesis_serialize(genesis_context *gen, serialize_buffer *buf, uint32_t m68k_pc);
 void genesis_deserialize(deserialize_buffer *buf, genesis_context *gen);
 
