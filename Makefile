@@ -39,7 +39,11 @@ LIBS=sdl2 glew
 FONT:=nuklear_ui/font_mac.o
 else
 ifdef USE_GLES
+ifdef GLES_LIB
+LIBS=sdl2
+else
 LIBS=sdl2 glesv2
+endif
 CFLAGS+= -DUSE_GLES
 else
 LIBS=sdl2 glew gl
@@ -87,7 +91,7 @@ ifeq ($(MAKECMDGOALS),libblastem.so)
 LDFLAGS:=-lm
 else
 CFLAGS:=$(shell pkg-config --cflags-only-I $(LIBS)) $(CFLAGS)
-LDFLAGS:=-lm $(shell pkg-config --libs $(LIBS))
+LDFLAGS:=-lm $(shell pkg-config --libs $(LIBS)) $(GLES_LIB)
 endif #libblastem.so
 
 ifeq ($(OS),Darwin)
@@ -148,15 +152,16 @@ CPU:=i686
 endif
 endif
 
-TRANSOBJS=gen.o backend.o $(MEM) arena.o tern.o
-M68KOBJS=68kinst.o m68k_core.o
+#TRANSOBJS=gen.o backend.o $(MEM) arena.o tern.o
+TRANSOBJS=backend.o tern.o
+M68KOBJS=68kinst.o m68k_core.o musashi/m68kops.o musashi/m68kcpu.o
 ifeq ($(CPU),x86_64)
-M68KOBJS+= m68k_core_x86.o
-TRANSOBJS+= gen_x86.o backend_x86.o
+#M68KOBJS+= m68k_core_x86.o
+#TRANSOBJS+= gen_x86.o backend_x86.o
 else
 ifeq ($(CPU),i686)
-M68KOBJS+= m68k_core_x86.o
-TRANSOBJS+= gen_x86.o backend_x86.o
+#M68KOBJS+= m68k_core_x86.o
+#TRANSOBJS+= gen_x86.o backend_x86.o
 endif
 endif
 
@@ -164,7 +169,8 @@ ifdef NEW_CORE
 Z80OBJS=z80.o z80inst.o 
 CFLAGS+= -DNEW_CORE
 else
-Z80OBJS=z80inst.o z80_to_x86.o
+#Z80OBJS=z80inst.o z80_to_x86.o
+Z80OBJS=z80inst.o mame_z80/z80.o
 endif
 AUDIOOBJS=ym2612.o psg.o wave.o
 CONFIGOBJS=config.o tern.o util.o paths.o 
@@ -177,8 +183,9 @@ else
 RENDEROBJS+= $(LIBZOBJS) png.o
 endif
 
-MAINOBJS=blastem.o system.o genesis.o debug.o gdb_remote.o vdp.o $(RENDEROBJS) io.o romdb.o hash.o menu.o xband.o \
-	realtec.o i2c.o nor.o sega_mapper.o multi_game.o megawifi.o $(NET) serialize.o $(TERMINAL) $(CONFIGOBJS) gst.o \
+#MAINOBJS=blastem.o system.o genesis.o debug.o gdb_remote.o vdp.o $(RENDEROBJS) io.o romdb.o hash.o menu.o xband.o 
+MAINOBJS=blastem.o system.o genesis.o vdp.o $(RENDEROBJS) io.o romdb.o hash.o menu.o xband.o \
+	realtec.o i2c.o nor.o sega_mapper.o multi_game.o megawifi.o $(NET) serialize.o $(TERMINAL) $(CONFIGOBJS) \
 	$(M68KOBJS) $(TRANSOBJS) $(AUDIOOBJS) saves.o zip.o bindings.o jcart.o
 
 LIBOBJS=libblastem.o system.o genesis.o debug.o gdb_remote.o vdp.o io.o romdb.o hash.o menu.o xband.o realtec.o \
@@ -199,7 +206,7 @@ ifeq ($(CPU),i686)
 CFLAGS+=-DX86_32 -m32
 LDFLAGS+=-m32
 else
-$(error $(CPU) is not a supported architecture)
+#$(error $(CPU) is not a supported architecture)
 endif
 endif
 

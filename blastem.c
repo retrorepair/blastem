@@ -14,7 +14,11 @@
 #ifdef NEW_CORE
 #include "z80.h"
 #else
+#ifdef USE_NATIVE
 #include "z80_to_x86.h"
+#else
+#include "mame_z80/z80.h"
+#endif
 #endif
 #include "mem.h"
 #include "vdp.h"
@@ -382,15 +386,19 @@ void init_system_with_media(const char *path, system_type force_stype)
 {
 	if (game_system) {
 		game_system->persist_save(game_system);
+#ifdef USE_NATIVE
 		//swap to game context arena and mark all allocated pages in it free
 		if (current_system == menu_system) {
 			current_system->arena = set_current_arena(game_system->arena);
 		}
 		mark_all_free();
+#endif
 		game_system->free_context(game_system);
+#ifdef USE_NATIVE
 	} else if(current_system) {
 		//start a new arena and save old one in suspended system context
 		current_system->arena = start_new_arena();
+#endif
 	}
 	system_type stype = SYSTEM_UNKNOWN;
 	if (!(cart.size = load_rom(path, &cart.buffer, &stype))) {
@@ -457,11 +465,13 @@ int main(int argc, char ** argv)
 					debug_target = 1;
 				}
 				break;
+#ifdef USE_NATIVE
 			case 'D':
 				gdb_remote_init();
 				dtype = DEBUGGER_GDB;
 				start_in_debugger = 1;
 				break;
+#endif
 			case 'f':
 				fullscreen = !fullscreen;
 				break;
@@ -686,7 +696,9 @@ int main(int argc, char ** argv)
 			current_system->enter_debugger = start_in_debugger && menu == debug_target;
 			current_system->start_context(current_system, statefile);
 		} else if (menu && game_system) {
+#ifdef USE_NATIVE
 			current_system->arena = set_current_arena(game_system->arena);
+#endif
 			current_system = game_system;
 			menu = 0;
 			current_system->resume_context(current_system);
@@ -696,7 +708,9 @@ int main(int argc, char ** argv)
 				ui_idle_loop();
 #endif
 			} else {
+#ifdef USE_NATIVE
 				current_system->arena = set_current_arena(menu_system->arena);
+#endif
 				current_system = menu_system;
 				menu = 1;
 			}

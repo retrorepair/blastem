@@ -357,7 +357,7 @@ static uint8_t load_state(system_header *system, uint8_t slot)
 	sms_context *sms = (sms_context *)system;
 	char *statepath = get_slot_name(system, slot, "state");
 	uint8_t ret;
-#ifndef NEW_CORE
+#if !defined(NEW_CORE) && defined(USE_NATIVE)
 	if (!sms->z80->native_pc) {
 		ret = get_modification_time(statepath) != 0;
 		if (ret) {
@@ -381,6 +381,7 @@ static void run_sms(system_header *system)
 	render_set_video_standard(VID_NTSC);
 	while (!sms->should_return)
 	{
+#ifdef USE_NATIVE
 		if (system->delayed_load_slot) {
 			load_state(system, system->delayed_load_slot - 1);
 			system->delayed_load_slot = 0;
@@ -390,6 +391,7 @@ static void run_sms(system_header *system)
 			system->enter_debugger = 0;
 			zdebugger(sms->z80, sms->z80->pc);
 		}
+#endif
 #ifdef NEW_CORE
 		if (sms->z80->nmi_cycle == CYCLE_NEVER) {
 #else
@@ -408,6 +410,7 @@ static void run_sms(system_header *system)
 		vdp_run_context(sms->vdp, target_cycle);
 		psg_run(sms->psg, target_cycle);
 		
+#ifdef USE_NATIVE
 		if (system->save_state) {
 			while (!sms->z80->pc) {
 				//advance Z80 to an instruction boundary
@@ -416,6 +419,7 @@ static void run_sms(system_header *system)
 			save_state(sms, system->save_state - 1);
 			system->save_state = 0;
 		}
+#endif
 		
 		target_cycle += 3420*16;
 		if (target_cycle > 0x10000000) {
@@ -458,10 +462,12 @@ static void start_sms(system_header *system, char *statefile)
 		load_state_path(sms, statefile);
 	}
 	
+#ifdef USE_NATIVE
 	if (system->enter_debugger) {
 		system->enter_debugger = 0;
 		zinsert_breakpoint(sms->z80, sms->z80->pc, (uint8_t *)zdebugger);
 	}
+#endif
 	
 	run_sms(system);
 }
@@ -470,8 +476,8 @@ static void soft_reset(system_header *system)
 {
 	sms_context *sms = (sms_context *)system;
 	z80_assert_reset(sms->z80, sms->z80->Z80_CYCLE);
-#ifndef NEW_CORE
-	sms->z80->target_cycle = sms->z80->sync_cycle = sms->z80->Z80_CYCLE;
+#if !defined(NEW_CORE) && defined(USE_NATIVE)
+	sms->z80->target_cycle = sms->z80->sync_cycle = sms->z80->current_cycle;
 #endif
 }
 
@@ -494,8 +500,10 @@ static void request_exit(system_header *system)
 {
 	sms_context *sms = (sms_context *)system;
 	sms->should_return = 1;
+#ifdef USE_NATIVE
 #ifndef NEW_CORE
 	sms->z80->target_cycle = sms->z80->sync_cycle = sms->z80->Z80_CYCLE;
+#endif
 #endif
 }
 

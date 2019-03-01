@@ -8,7 +8,11 @@
 #ifdef NEW_CORE
 #include "z80.h"
 #else
+#ifdef USE_NATIVE
 #include "z80_to_x86.h"
+#else
+#include "mame_z80/z80.h"
+#endif
 #endif
 #include "util.h"
 
