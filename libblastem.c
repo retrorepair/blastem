@@ -81,12 +81,12 @@ RETRO_API void retro_get_system_av_info(struct retro_system_av_info *info)
 {
 	last_width = LINEBUF_SIZE;
 	info->geometry.base_width = info->geometry.max_width = LINEBUF_SIZE;
-	info->geometry.base_height = video_standard == VID_NTSC ? 243 : 294;
+	info->geometry.base_height = video_standard == VID_NTSC ? 240 : 288;
 	last_height = info->geometry.base_height;
 	info->geometry.max_height = info->geometry.base_height * 2;
 	info->geometry.aspect_ratio = 0;
-	info->timing.fps = video_standard == VID_NTSC ? 60 : 50;
-	info->timing.sample_rate = 53267; //approximate sample rate of YM2612
+	info->timing.fps = video_standard == VID_NTSC ? 59.922740 : 49.701459;
+	info->timing.sample_rate = video_standard == VID_NTSC ? 53267 : 52781; //approximate sample rate of YM2612
 }
 
 RETRO_API void retro_set_controller_port_device(unsigned port, unsigned device)
@@ -236,7 +236,7 @@ void render_destroy_window(uint8_t which)
 	//not supported in lib build
 }
 
-static uint32_t fb[LINEBUF_SIZE * 294 * 2];
+static uint32_t fb[LINEBUF_SIZE * 288 * 2];
 static uint8_t last_fb;
 uint32_t *render_get_framebuffer(uint8_t which, int *pitch)
 {
@@ -254,7 +254,7 @@ uint32_t *render_get_framebuffer(uint8_t which, int *pitch)
 
 void render_framebuffer_updated(uint8_t which, int width)
 {
-	unsigned height = video_standard == VID_NTSC ? 243 : 294;
+	unsigned height = video_standard == VID_NTSC ? 240 : 288;
 	unsigned base_height = height;
 	if (which != last_fb) {
 		height *= 2;
